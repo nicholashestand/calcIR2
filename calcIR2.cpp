@@ -9,6 +9,8 @@
 #include <xdrfile.h>
 #include <gmx_reader.h>
 #include <fftw3.h>
+#include <omp.h>
+#include <pthread.h>
 #include "calcIR2.h"
 
 #define PI 3.14159265359 
@@ -103,10 +105,11 @@ model::~model()
 void model::adjust_Msite()
 // set msite OH distance to tip4p geometry
 {
-    int   mol, i;
-    float om_vec[3], r;
+    #pragma omp parallel for
+    for ( int mol = 0; mol < nmol; mol ++ ){
+        int   i;
+        float om_vec[3], r;
 
-    for ( mol = 0; mol < nmol; mol ++ ){
         // the OM unit vector
         for ( i = 0; i < 3; i ++ ) om_vec[i] = x[ mol*natoms_mol + MW ][i] \
                                              - x[ mol*natoms_mol + OW ][i];
@@ -138,15 +141,6 @@ int model::get_chrom_nx( int mol, int h )
 void model::get_efield()
 // calculate the electric field projection onto each H atom
 {
-
-    int   mol1, mol2, h1, a2, i, chrom;
-    float r;
-    float efield_vec[3];    // electric field vector
-    float mol1oh_vec[3];    // oh vector of molecule 1
-    float mol12ho_vec[3];   // the oh vector between molecule 2 and 1
-    float a2_vec[3];        // vector of 2nd atom
-    float dr[3];            // distance vector
-
     const float efieldCutoff = 0.7831; // cutoff radius for efield
     const float bohr_nm      = 18.8973;// convert from nm to bohr
 
@@ -154,8 +148,15 @@ void model::get_efield()
     adjust_Msite();
 
     // loop over all reference chromophores
-    // TODO make OMP loop
-    for ( mol1 = 0; mol1 < nmol; mol1 ++ ){
+    #pragma omp parallel for
+    for ( int mol1 = 0; mol1 < nmol; mol1 ++ ){
+        int   mol2, h1, a2, i, chrom;
+        float r;
+        float efield_vec[3];    // electric field vector
+        float mol1oh_vec[3];    // oh vector of molecule 1
+        float mol12ho_vec[3];   // the oh vector between molecule 2 and 1
+        float a2_vec[3];        // vector of 2nd atom
+        float dr[3];            // distance vector
         for ( h1 = 1; h1 < 3; h1 ++ ){
 
             //initialize electric field to zero
@@ -204,11 +205,11 @@ void model::get_efield()
 void model::get_dipole_moments()
 // determine the transition dipole moment unit vectors
 {
-    int mol, h, chrom, i;
-    float oh_vec[3], r;
-    float muprime, x10, omega10;
-
-    for ( mol = 0; mol < nmol; mol ++ ){
+    #pragma omp parallel for
+    for ( int mol = 0; mol < nmol; mol ++ ){
+        int h, chrom, i;
+        float oh_vec[3], r;
+        float muprime, x10, omega10;
         for ( h = 1; h <3; h ++ ){
             for ( i = 0; i < 3; i ++ ) oh_vec[i] = x[ mol*natoms_mol + h ][i] \
                                                  - x[ mol*natoms_mol + OW][i];
@@ -227,10 +228,9 @@ void model::get_dipole_moments()
 void model::set_dipole_moments_t0()
 // set transition dipole moment vector at t0
 {
-    int chrom, i;
-
-    for ( chrom = 0; chrom < nchrom; chrom ++ ){
-        for ( i = 0; i < 3; i ++ ) dipole_t0[ chrom ][i] = dipole[chrom][i];
+    #pragma omp parallel for
+    for ( int chrom = 0; chrom < nchrom; chrom ++ ){
+        for ( int i = 0; i < 3; i ++ ) dipole_t0[ chrom ][i] = dipole[chrom][i];
     }
 }
 
@@ -271,6 +271,8 @@ void model::get_tcf_dilute( int tcfpoint )
     float omega10;
     float dipole_t0_vec[3], dipole_vec[3];
 
+    // dont parallelize with omp because it cant handle complex reductions
+    // could make a work around but may not be worth the time
     for ( chrom = 0; chrom < nchrom; chrom ++ ){
         omega10 = get_omega10( eproj[chrom] ) - avef; // subtract off average frequency 
                                                       // to avoid high frequency oscillations 
@@ -294,9 +296,8 @@ void model::get_tcf_dilute( int tcfpoint )
 void model::reset_propigator()
 // reset the propigator to ones for t=0
 {
-    int chrom;
-
-    for ( chrom = 0; chrom < nchrom; chrom ++ ){
+    #pragma omp parallel for
+    for ( int chrom = 0; chrom < nchrom; chrom ++ ){
         propigator[ chrom ] = complex_one;
     }
 }
