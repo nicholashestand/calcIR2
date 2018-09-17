@@ -32,6 +32,8 @@ class model: public gmx_reader
         float *eproj;                            // electric field
         rvec  *dipole_t0;                        // transition dipole moment of each chrom at t0
         rvec  *dipole;                           // transition dipole moment of each chrom
+        matrix *alpha_t0;                        // polarizabilities of each chrom at t0
+        matrix *alpha;                           // polarizabiliites of each chrom
 
         complex<double>         *irtcf; 
         complex<double>         *vvtcf; 
@@ -46,6 +48,8 @@ class model: public gmx_reader
         const int               nzeros       = 25600;
 
         double                  *Firtcf;
+        double                  *Fvvtcf;
+        double                  *Fvhtcf;
         double                  *Fomega;
 
     
@@ -58,6 +62,8 @@ class model: public gmx_reader
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         void  get_dipole_moments();
         void  set_dipole_moments_t0();
+        void  get_alpha();
+        void  set_alpha_t0();
         void  reset_propigator();
         void  get_efield();
         void  adjust_Msite();
@@ -67,7 +73,7 @@ class model: public gmx_reader
         float get_omega10( float efield );
         float get_x10( float omega10 );
         float get_p10( float omega10 );
-        void  irfft();
+        void  do_ffts();
         void  write_tcf();
         void  write_spec();
 };

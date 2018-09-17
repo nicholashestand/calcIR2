@@ -59,8 +59,14 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     eproj     = new float[nchrom]();
     dipole_t0 = new rvec[ nchrom ]();
     dipole    = new rvec[ nchrom ]();
+    alpha_t0  = new matrix[ nchrom ]();
+    alpha     = new matrix[ nchrom ]();
     irtcf     = new complex<double>[ ntcfpoints ]();
+    vvtcf     = new complex<double>[ ntcfpoints ]();
+    vhtcf     = new complex<double>[ ntcfpoints ]();
     Firtcf    = new double[ ntcfpoints + nzeros ]();
+    Fvvtcf    = new double[ ntcfpoints + nzeros ]();
+    Fvhtcf    = new double[ ntcfpoints + nzeros ]();
     Fomega    = new double[ ntcfpoints + nzeros ]();
     propigator= new complex<double>[ nchrom ]();
 
@@ -95,12 +101,17 @@ model::~model()
     delete [] eproj;
     delete [] dipole_t0;
     delete [] dipole;
+    delete [] alpha_t0;
+    delete [] alpha;
     delete [] irtcf;
+    delete [] vvtcf;
+    delete [] vhtcf;
     delete [] Firtcf;
+    delete [] Fvvtcf;
+    delete [] Fvhtcf;
     delete [] Fomega;
     delete [] propigator;
 }
-
 
 void model::adjust_Msite()
 // set msite OH distance to tip4p geometry
@@ -225,12 +236,58 @@ void model::get_dipole_moments()
     }
 }
 
+void model::get_alpha()
+// determine the polarizabilities
+{
+    #pragma omp parallel for
+    for ( int mol = 0; mol < nmol; mol ++ ){
+        int h, chrom, i, j;
+        float oh_vec[3], r;
+        float x10, omega10;
+        for ( h = 1; h<3; h++ ){
+            for ( i = 0; i < 3; i ++ ) oh_vec[i] = x[ mol*natoms_mol + h ][i] \
+                                                 - x[ mol*natoms_mol + OW][i];
+            minImage( oh_vec );
+            r = mag3( oh_vec );
+
+            chrom   = get_chrom_nx( mol, h );
+            omega10 = get_omega10( eproj[chrom] );
+            x10     = get_x10( omega10 );
+            for ( i = 0; i < 3; i ++ ){
+                for ( j = 0; j < 3; j ++ ){
+                    // off diagonal and diagonal
+                    alpha[ chrom ][i][j] = 4.6*oh_vec[i]*oh_vec[j]*x10/(r*r);
+                }
+                alpha[ chrom ][i][i] += x10; // diagonal have an extra factor
+            }
+            /*
+            if ( chrom == 0 ) {
+                cout << setprecision(8) << alpha[chrom][0][1] << endl;
+                cout << oh_vec[1]/r << " " << x10 << " " << r << endl;
+                cout << (4.6*oh_vec[0]*oh_vec[1]/(r*r)+0)*x10 << endl;
+            }
+            */
+        }
+    }
+}
+
 void model::set_dipole_moments_t0()
 // set transition dipole moment vector at t0
 {
     #pragma omp parallel for
     for ( int chrom = 0; chrom < nchrom; chrom ++ ){
         for ( int i = 0; i < 3; i ++ ) dipole_t0[ chrom ][i] = dipole[chrom][i];
+    }
+}
+
+void model::set_alpha_t0()
+// set polarizabilities at t0
+{
+    #pragma omp parallel for
+    for ( int chrom = 0; chrom < nchrom; chrom ++ ){
+        for ( int i = 0; i < 3; i ++ ){
+            for ( int j = 0; j < 3; j ++ ) alpha_t0[ chrom ][i][j] = alpha[chrom][i][j];
+        }
     }
 }
 
@@ -266,22 +323,24 @@ float model::get_muprime( float efield ){
 void model::get_tcf_dilute( int tcfpoint )
 // determine dipole time correlation function for dilute HOD in D2O or H2O
 {
-    int chrom, i;
-    complex<double> ir_prefactor, arg;
+    int chrom, i, j;
+    complex<double> ir_prefactor, arg, vv_prefactor, vh_prefactor;
     float omega10;
     float dipole_t0_vec[3], dipole_vec[3];
 
     // dont parallelize with omp because it cant handle complex reductions
     // could make a work around but may not be worth the time
     for ( chrom = 0; chrom < nchrom; chrom ++ ){
-        omega10 = get_omega10( eproj[chrom] ) - avef; // subtract off average frequency 
-                                                      // to avoid high frequency oscillations 
-                                                      // -- need to add it back later
+
         // update the propigator
         if ( tcfpoint != 0 ){ // at t=0, the propigator is 1
+            omega10 = get_omega10( eproj[chrom] ) - avef; // subtract off average frequency 
+                                                      // to avoid high frequency oscillations 
+                                                      // -- need to add it back later
             arg = (complex<double>){ 0., omega10 * tcfdt / hbar };
             propigator[ chrom ] *= exp(arg);
         }
+
         // ir spectrum
         for ( i = 0; i < 3; i ++ ){
             dipole_t0_vec[i] = dipole_t0[chrom][i];
@@ -289,6 +348,30 @@ void model::get_tcf_dilute( int tcfpoint )
         }
         ir_prefactor = (complex<double>){dot3( dipole_t0_vec, dipole_vec ), 0};
         irtcf[ tcfpoint ] += ir_prefactor * propigator[ chrom ];
+
+        // vv raman spectrum
+        vv_prefactor = complex_zero;
+        for ( i = 0; i < 3; i ++ ){
+            for ( j = 0; j < 3; j ++ ){
+                vv_prefactor += (complex<double>) \
+                                { (alpha_t0[chrom][i][i]*alpha[chrom][j][j]  \
+                              + 2.*alpha_t0[chrom][i][j]*alpha[chrom][i][j]) \
+                              / 15., 0};
+            }
+        }
+        vvtcf[ tcfpoint ] += vv_prefactor * propigator[chrom];
+        
+        // vh raman spectrum
+        vh_prefactor = complex_zero;
+        for ( i = 0; i < 3; i ++ ){
+            for ( j = 0; j < 3; j ++ ){
+                vh_prefactor += (complex<double>) \
+                                { (3.*alpha_t0[chrom][i][j]*alpha[chrom][i][j]  \
+                                     -alpha_t0[chrom][i][i]*alpha[chrom][j][j]) \
+                                /30.,0.};
+            }
+        }
+        vhtcf[ tcfpoint ] += vh_prefactor * propigator[ chrom ];
     }
 
 }
@@ -302,27 +385,51 @@ void model::reset_propigator()
     }
 }
 
-void model::irfft()
+void model::do_ffts()
 // fourier transform tcf to get the spectrum
 {
     fftw_plan plan;
-    complex<double> tcf[nzeros + ntcfpoints]={0};
-    double Firtcf_tmp[nzeros + ntcfpoints];
+    complex<double> tcf[nzeros + ntcfpoints];
+    double Ftcf[nzeros + ntcfpoints];
     double convert;
     int i;
 
+    // ir spectrum
+    for ( i = 0; i < ntcfpoints + nzeros; i++ ) tcf[i] = complex_zero;
     for ( i = 0; i < ntcfpoints; i++ ) tcf[i] = irtcf[ i ]*pow(-1.,i);// last mult puts zero 
                                                                       // freq in center of array
-    plan = fftw_plan_dft_c2r_1d( nzeros + ntcfpoints, reinterpret_cast<fftw_complex*>(tcf), \
-            Firtcf_tmp, FFTW_ESTIMATE );
+    plan = fftw_plan_dft_c2r_1d( nzeros + ntcfpoints, \
+            reinterpret_cast<fftw_complex*>(tcf), Ftcf, FFTW_ESTIMATE );
     fftw_execute(plan);
-   
     // C2R transform is alway inverse, so the spectrum is "backwards", here make it forwards
     // and normalize it
     convert = 2.*PI*hbar/(tcfdt*(ntcfpoints+nzeros));
     for ( i = 0; i < ntcfpoints + nzeros; i ++ ){
-        Firtcf[i] = Firtcf_tmp[ ntcfpoints + nzeros - i - 1 ]/(convert*(ntcfpoints+nzeros));
-        Fomega[i] = (i-(ntcfpoints+nzeros)/2)*convert + avef;
+        Firtcf[i] = Ftcf[ ntcfpoints + nzeros - i - 1 ]/(convert*(ntcfpoints+nzeros));
+        Fomega[i] = (i-(ntcfpoints+nzeros)/2+1)*convert + avef;
+    }
+
+
+    // vv spectrum
+    for ( i = 0; i < ntcfpoints + nzeros; i++ ) tcf[i] = complex_zero;
+    for ( i = 0; i < ntcfpoints; i++ ) tcf[i] = vvtcf[ i ]*pow(-1.,i);// last mult puts zero 
+                                                                      // freq in center of array
+    plan = fftw_plan_dft_c2r_1d( nzeros + ntcfpoints, \
+            reinterpret_cast<fftw_complex*>(tcf), Ftcf, FFTW_ESTIMATE );
+    fftw_execute(plan);
+    for ( i = 0; i < ntcfpoints + nzeros; i ++ ){
+        Fvvtcf[i] = Ftcf[ ntcfpoints + nzeros - i - 1 ]/(convert*(ntcfpoints+nzeros));
+    }
+
+    // vh spectrum
+    for ( i = 0; i < ntcfpoints + nzeros; i++ ) tcf[i] = complex_zero;
+    for ( i = 0; i < ntcfpoints; i++ ) tcf[i] = vhtcf[ i ]*pow(-1.,i);// last mult puts zero 
+                                                                      // freq in center of array
+    plan = fftw_plan_dft_c2r_1d( nzeros + ntcfpoints, \
+            reinterpret_cast<fftw_complex*>(tcf), Ftcf, FFTW_ESTIMATE );
+    fftw_execute(plan);
+    for ( i = 0; i < ntcfpoints + nzeros; i ++ ){
+        Fvhtcf[i] = Ftcf[ ntcfpoints + nzeros - i - 1 ]/(convert*(ntcfpoints+nzeros));
     }
 }
 
@@ -333,6 +440,7 @@ void model::write_tcf()
     string fname;
     FILE *file;
     
+    // ir spec
     fname = outf+"-irrtcf.dat";
     file = fopen(fname.c_str(),"w");
     fprintf( file, "#t (ps) irtcf.real\n");
@@ -348,6 +456,41 @@ void model::write_tcf()
         fprintf( file, "%g %g \n", tcfpoint*tcfdt, irtcf[tcfpoint].imag() );
     }
     fclose( file );
+
+    // vv spec
+    fname = outf+"-vvrtcf.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#t (ps) vvtcf.real\n");
+    for ( tcfpoint = 0; tcfpoint < ntcfpoints; tcfpoint ++ ){
+        fprintf( file, "%g %g \n", tcfpoint*tcfdt, vvtcf[tcfpoint].real() );
+    }
+    fclose( file );
+
+    fname = outf+"-vvitcf.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#t (ps) vvtcf.imag\n");
+    for ( tcfpoint = 0; tcfpoint < ntcfpoints; tcfpoint ++ ){
+        fprintf( file, "%g %g \n", tcfpoint*tcfdt, vvtcf[tcfpoint].imag() );
+    }
+    fclose( file );
+
+    // vh spec
+    fname = outf+"-vhrtcf.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#t (ps) vhtcf.real\n");
+    for ( tcfpoint = 0; tcfpoint < ntcfpoints; tcfpoint ++ ){
+        fprintf( file, "%g %g \n", tcfpoint*tcfdt, vhtcf[tcfpoint].real() );
+    }
+    fclose( file );
+
+    fname = outf+"-vhitcf.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#t (ps) vhtcf.imag\n");
+    for ( tcfpoint = 0; tcfpoint < ntcfpoints; tcfpoint ++ ){
+        fprintf( file, "%g %g \n", tcfpoint*tcfdt, vhtcf[tcfpoint].imag() );
+    }
+    fclose( file );
+
 }
 
 void model::write_spec()
@@ -357,6 +500,7 @@ void model::write_spec()
     string fname;
     FILE *file;
     
+    // ir spectrum
     fname = outf+"-irls.dat";
     file = fopen(fname.c_str(),"w");
     fprintf( file, "#omega (cm-1) lineshape\n");
@@ -364,6 +508,25 @@ void model::write_spec()
         fprintf( file, "%g %g\n", Fomega[i], Firtcf[i] );
     }
     fclose(file);
+
+    // vv spectrum
+    fname = outf+"-vvls.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#omega (cm-1) lineshape\n");
+    for ( i = 0; i < ntcfpoints + nzeros; i ++ ){
+        fprintf( file, "%g %g\n", Fomega[i], Fvvtcf[i] );
+    }
+    fclose(file);
+
+    // vh spectrum
+    fname = outf+"-vhls.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#omega (cm-1) lineshape\n");
+    for ( i = 0; i < ntcfpoints + nzeros; i ++ ){
+        fprintf( file, "%g %g\n", Fomega[i], Fvhtcf[i] );
+    }
+    fclose(file);
+
 }
 
 // ************************************************************************ 
@@ -402,8 +565,10 @@ int main( int argc, char* argv[] )
 
             reader.get_efield();
             reader.get_dipole_moments();
+            reader.get_alpha();
             if ( tcfpoint == 0 ){
                 reader.set_dipole_moments_t0();
+                reader.set_alpha_t0();
                 reader.reset_propigator();
             }
             reader.get_tcf_dilute( tcfpoint );
@@ -413,10 +578,12 @@ int main( int argc, char* argv[] )
     // normalize the time correlation function and multiply by relaxation time
     for ( tcfpoint = 0; tcfpoint < reader.ntcfpoints; tcfpoint ++ ){
         reader.irtcf[ tcfpoint ] *= (complex<double>){exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
+        reader.vvtcf[ tcfpoint ] *= (complex<double>){exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
+        reader.vhtcf[ tcfpoint ] *= (complex<double>){exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
     }
 
     // perform the fft to get the spectrum
-    reader.irfft();
+    reader.do_ffts();
 
     // write output files
     reader.write_tcf(); // write tcf to file
