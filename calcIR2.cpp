@@ -72,7 +72,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
 
 
     // set the maps
-    if ( species == "HOD/H2O" or species == "D2O" ){
+    if ( species == "HOD/H2O" ){
         // DO stretch parameters
         map_w[0] = 2767.8; map_w[1] = -2630.3; map_w[2] = -102601.0;
         map_x[0] = 0.16593; map_x[1] = -2.0632E-5;
@@ -80,7 +80,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
         map_muprime[0] = 0.1646; map_muprime[1] = 11.39; map_muprime[2] = 63.41;
         avef = 2500.;
     }
-    else if ( species == "HOD/D2O" or species == "H2O" ){
+    else if ( species == "HOD/D2O" ){
         // HO stretch parameters
         map_w[0] = 3760.2; map_w[1] = -3541.7; map_w[2] = -152677.0;
         map_x[0] = 0.19285; map_x[1] = -1.7261E-5;
@@ -90,6 +90,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     }
     else{
         cout << "WARNING:: species: " << species << " unknown. Aborting..." << endl;
+        cout << "I can only calculate dilute spectra of HOD in H2O or D2O" << endl;
         exit(EXIT_FAILURE);
     }
 
@@ -213,12 +214,12 @@ void model::get_efield()
     }
 }
 
-void model::get_dipole_moments()
+void model::get_alpha_mu()
 // determine the transition dipole moment unit vectors
 {
     #pragma omp parallel for
     for ( int mol = 0; mol < nmol; mol ++ ){
-        int h, chrom, i;
+        int h, chrom, i, j;
         float oh_vec[3], r;
         float muprime, x10, omega10;
         for ( h = 1; h <3; h ++ ){
@@ -231,28 +232,9 @@ void model::get_dipole_moments()
             omega10 = get_omega10( eproj[chrom] );
             muprime = get_muprime( eproj[chrom] );
             x10     = get_x10( omega10 );
+            // mu for ir spectrum
             for ( i = 0; i < 3; i ++ ) dipole[ chrom ][i] = muprime*x10*oh_vec[i] / r;
-        }
-    }
-}
-
-void model::get_alpha()
-// determine the polarizabilities
-{
-    #pragma omp parallel for
-    for ( int mol = 0; mol < nmol; mol ++ ){
-        int h, chrom, i, j;
-        float oh_vec[3], r;
-        float x10, omega10;
-        for ( h = 1; h<3; h++ ){
-            for ( i = 0; i < 3; i ++ ) oh_vec[i] = x[ mol*natoms_mol + h ][i] \
-                                                 - x[ mol*natoms_mol + OW][i];
-            minImage( oh_vec );
-            r = mag3( oh_vec );
-
-            chrom   = get_chrom_nx( mol, h );
-            omega10 = get_omega10( eproj[chrom] );
-            x10     = get_x10( omega10 );
+            // alpha for raman spectrum
             for ( i = 0; i < 3; i ++ ){
                 for ( j = 0; j < 3; j ++ ){
                     // off diagonal and diagonal
@@ -260,32 +242,17 @@ void model::get_alpha()
                 }
                 alpha[ chrom ][i][i] += x10; // diagonal have an extra factor
             }
-            /*
-            if ( chrom == 0 ) {
-                cout << setprecision(8) << alpha[chrom][0][1] << endl;
-                cout << oh_vec[1]/r << " " << x10 << " " << r << endl;
-                cout << (4.6*oh_vec[0]*oh_vec[1]/(r*r)+0)*x10 << endl;
-            }
-            */
         }
     }
 }
 
-void model::set_dipole_moments_t0()
+void model::set_alpha_mu_t0()
 // set transition dipole moment vector at t0
 {
     #pragma omp parallel for
     for ( int chrom = 0; chrom < nchrom; chrom ++ ){
-        for ( int i = 0; i < 3; i ++ ) dipole_t0[ chrom ][i] = dipole[chrom][i];
-    }
-}
-
-void model::set_alpha_t0()
-// set polarizabilities at t0
-{
-    #pragma omp parallel for
-    for ( int chrom = 0; chrom < nchrom; chrom ++ ){
         for ( int i = 0; i < 3; i ++ ){
+            dipole_t0[ chrom ][i] = dipole[chrom][i];
             for ( int j = 0; j < 3; j ++ ) alpha_t0[ chrom ][i][j] = alpha[chrom][i][j];
         }
     }
@@ -323,14 +290,15 @@ float model::get_muprime( float efield ){
 void model::get_tcf_dilute( int tcfpoint )
 // determine dipole time correlation function for dilute HOD in D2O or H2O
 {
-    int chrom, i, j;
-    complex<double> ir_prefactor, arg, vv_prefactor, vh_prefactor;
-    float omega10;
-    float dipole_t0_vec[3], dipole_vec[3];
+    double irReal, irImag, vvReal, vvImag, vhReal, vhImag;
+    irReal = 0.; irImag=0.; vvReal=0.; vvImag=0.; vhReal=0.; vhImag=0.;
 
-    // dont parallelize with omp because it cant handle complex reductions
-    // could make a work around but may not be worth the time
-    for ( chrom = 0; chrom < nchrom; chrom ++ ){
+    #pragma omp parallel for reduction(+:irReal, irImag, vvReal, vvImag, vhReal, vhImag)
+    for ( int chrom = 0; chrom < nchrom; chrom ++ ){
+        int i, j;
+        complex<double> ir_prefactor, arg, vv_prefactor, vh_prefactor;
+        float omega10;
+        float dipole_t0_vec[3], dipole_vec[3];
 
         // update the propigator
         if ( tcfpoint != 0 ){ // at t=0, the propigator is 1
@@ -347,7 +315,8 @@ void model::get_tcf_dilute( int tcfpoint )
             dipole_vec[i]    = dipole[chrom][i];
         }
         ir_prefactor = (complex<double>){dot3( dipole_t0_vec, dipole_vec ), 0};
-        irtcf[ tcfpoint ] += ir_prefactor * propigator[ chrom ];
+        irReal += real(ir_prefactor*propigator[ chrom ]);
+        irImag += imag(ir_prefactor*propigator[ chrom ]);
 
         // vv raman spectrum
         vv_prefactor = complex_zero;
@@ -359,7 +328,8 @@ void model::get_tcf_dilute( int tcfpoint )
                               / 15., 0};
             }
         }
-        vvtcf[ tcfpoint ] += vv_prefactor * propigator[chrom];
+        vvReal += real(vv_prefactor * propigator[chrom]);
+        vvImag += imag(vv_prefactor * propigator[chrom]);
         
         // vh raman spectrum
         vh_prefactor = complex_zero;
@@ -371,9 +341,14 @@ void model::get_tcf_dilute( int tcfpoint )
                                 /30.,0.};
             }
         }
-        vhtcf[ tcfpoint ] += vh_prefactor * propigator[ chrom ];
+        vhReal += real(vh_prefactor * propigator[chrom]);
+        vhImag += imag(vh_prefactor * propigator[chrom]);
     }
 
+    // collect everything at the end
+    irtcf[ tcfpoint ] += complex<double>{ irReal, irImag };
+    vvtcf[ tcfpoint ] += complex<double>{ vvReal, vvImag };
+    vhtcf[ tcfpoint ] += complex<double>{ vhReal, vhImag };
 }
 
 void model::reset_propigator()
@@ -564,11 +539,9 @@ int main( int argc, char* argv[] )
             reader.read_frame( frameno );
 
             reader.get_efield();
-            reader.get_dipole_moments();
-            reader.get_alpha();
+            reader.get_alpha_mu();
             if ( tcfpoint == 0 ){
-                reader.set_dipole_moments_t0();
-                reader.set_alpha_t0();
+                reader.set_alpha_mu_t0();
                 reader.reset_propigator();
             }
             reader.get_tcf_dilute( tcfpoint );
@@ -577,9 +550,12 @@ int main( int argc, char* argv[] )
 
     // normalize the time correlation function and multiply by relaxation time
     for ( tcfpoint = 0; tcfpoint < reader.ntcfpoints; tcfpoint ++ ){
-        reader.irtcf[ tcfpoint ] *= (complex<double>){exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
-        reader.vvtcf[ tcfpoint ] *= (complex<double>){exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
-        reader.vhtcf[ tcfpoint ] *= (complex<double>){exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
+        reader.irtcf[ tcfpoint ] *= (complex<double>)\
+                {exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
+        reader.vvtcf[ tcfpoint ] *= (complex<double>)\
+                {exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
+        reader.vhtcf[ tcfpoint ] *= (complex<double>)\
+                {exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
     }
 
     // perform the fft to get the spectrum

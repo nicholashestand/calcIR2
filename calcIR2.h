@@ -60,10 +60,8 @@ class model: public gmx_reader
 
         // functions
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        void  get_dipole_moments();
-        void  set_dipole_moments_t0();
-        void  get_alpha();
-        void  set_alpha_t0();
+        void  get_alpha_mu();
+        void  set_alpha_mu_t0();
         void  reset_propigator();
         void  get_efield();
         void  adjust_Msite();
