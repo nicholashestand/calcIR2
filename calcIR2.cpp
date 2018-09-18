@@ -504,6 +504,15 @@ void model::write_spec()
 
 }
 
+void printProgress( int currentStep, int totalSteps )
+// print a progress bar to keep updated on usage
+{
+    float percentage = (float) currentStep / (float) totalSteps;
+    int lpad = (int) (percentage*PWID);
+    int rpad = PWID - lpad;
+    fprintf(stderr, "\r [%.*s%*s]%3d%%", lpad, PSTR, rpad, "",(int) (percentage*100));
+}
+
 // ************************************************************************ 
 int main( int argc, char* argv[] )
 {
@@ -529,8 +538,9 @@ int main( int argc, char* argv[] )
          << "************************************************************************" << endl;
     for ( currentSample = 0; currentSample < reader.nsamples; currentSample ++ ){
         currentTime = currentSample * reader.sampleEvery + reader.beginTime;
-        cout << "\rCurrent sample t0: " << currentTime << setprecision(2) << fixed <<  " (ps)";
-        cout.flush();
+        fprintf(stderr, "\n    Now processing sample %d/%d starting at %.2f ps\n", \
+                currentSample + 1, reader.nsamples, currentTime );
+        fflush(stderr);
         for ( tcfpoint = 0; tcfpoint < reader.ntcfpoints; tcfpoint ++ ){
            
             // get current time and read time frame
@@ -545,6 +555,8 @@ int main( int argc, char* argv[] )
                 reader.reset_propigator();
             }
             reader.get_tcf_dilute( tcfpoint );
+
+            printProgress( tcfpoint , reader.ntcfpoints );
         }   
     }
 
@@ -565,5 +577,5 @@ int main( int argc, char* argv[] )
     reader.write_tcf(); // write tcf to file
     reader.write_spec();
 
-    cout << endl << "DONE!" << endl;
+    cout << endl << endl << endl << "DONE!" << endl;
 }

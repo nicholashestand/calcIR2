@@ -3,6 +3,10 @@
 #include <complex.h>
 #include <gmx_reader.h>
 
+#define PSTR        "||||||||||||||||||||||||||||||||||||||||||||||||||"
+#define PWID        50
+
+
 #ifndef HBondDistribution_H
 #define HBondDistribution_H
 class model: public gmx_reader
@@ -74,5 +78,6 @@ class model: public gmx_reader
         void  do_ffts();
         void  write_tcf();
         void  write_spec();
+        void  printProgress( int currentStep, int totalSteps );
 };
 #endif
