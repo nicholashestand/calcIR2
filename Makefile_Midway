@@ -1,0 +1,16 @@
+SOFTDIR = /home/hestand/software/
+LIBDIRS = -L$(SOFTDIR)/lib
+INCDIRS = -I$(SOFTDIR)/include
+
+src     = calcIR2.cpp
+exes    = calcIR2.exe
+CC      = g++
+LIBS    = -lgmx_reader -lxdrfile -lm -lfftw3
+
+all: ${exes}
+
+${exes}: ${src} calcIR2.h
+	$(CC) $(src) -o $(exes) $(LIBS) -std=c++11 -fmax-errors=10 -fopenmp -lpthread -O3 $(INCDIRS) $(LIBDIRS)
+
+clean:
+	rm calcIR2.exe
