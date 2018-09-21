@@ -547,6 +547,11 @@ int main( int argc, char* argv[] )
             tcfTime = currentTime + tcfpoint * reader.tcfdt;
             frameno = reader.get_frame_number( tcfTime );
             reader.read_frame( frameno );
+            if ( reader.checktime( tcfTime ) == false ){
+                cout << "Warning:: checktime failed. gmxtime is: " << reader.gmxtime << endl;
+                cout << "Aborting." << endl;
+                exit(EXIT_FAILURE);
+            }
 
             reader.get_efield();
             reader.get_alpha_mu();
