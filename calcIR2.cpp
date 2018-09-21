@@ -548,7 +548,8 @@ int main( int argc, char* argv[] )
             frameno = reader.get_frame_number( tcfTime );
             reader.read_frame( frameno );
             if ( reader.checktime( tcfTime ) == false ){
-                cout << "Warning:: checktime failed. gmxtime is: " << reader.gmxtime << endl;
+                cout << endl << "Warning:: checktime failed. gmxtime is: " << reader.gmxtime << endl;
+                cout << "tcfTime is: " << tcfTime << endl;
                 cout << "Aborting." << endl;
                 exit(EXIT_FAILURE);
             }
