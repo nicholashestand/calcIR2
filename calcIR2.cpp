@@ -34,6 +34,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
         if ( uParams[i] == "beginTime" )        beginTime       = stof(uValues[i]);
         if ( uParams[i] == "tcfdt" )            tcfdt           = stof(uValues[i]);
         if ( uParams[i] == "t1" )               t1              = stof(uValues[i]);
+        if ( uParams[i] == "HODtype" )          HODtype         = uValues[i];
     }
 
     cout << "Set outf to: "         << outf         << endl;
@@ -44,6 +45,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     cout << "Set sampleEvery to: "  << sampleEvery  << endl;
     cout << "Set beginTime to: "    << beginTime    << endl;
     cout << "Set outf to: "         << outf         << endl;
+    cout << "set HODtype to: "      << HODtype      << endl;
 
     // determine number of chromophores
     nchrom = nmol*nchrom_mol; // number of chromophores per frame
@@ -91,6 +93,12 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     else{
         cout << "WARNING:: species: " << species << " unknown. Aborting..." << endl;
         cout << "I can only calculate dilute spectra of HOD in H2O or D2O" << endl;
+        exit(EXIT_FAILURE);
+    }
+
+    if ( HODtype != "explicit" and HODtype != "implicit" ){
+        cout << "Warning:: HODtype: " << HODtype << " unknown. Aborting..." << endl;
+        cout << "Valid options for HODtype are 'explicit' and 'implicit'" << endl;
         exit(EXIT_FAILURE);
     }
 
@@ -233,14 +241,40 @@ void model::get_alpha_mu()
             muprime = get_muprime( eproj[chrom] );
             x10     = get_x10( omega10 );
             // mu for ir spectrum
-            for ( i = 0; i < 3; i ++ ) dipole[ chrom ][i] = muprime*x10*oh_vec[i] / r;
+            for ( i = 0; i < 3; i ++ ){
+                dipole[ chrom ][i] = muprime*x10*oh_vec[i] / r;
+                if ( HODtype == "explicit" ){
+                    if ( species == "HOD/H2O" and h==1 ){ // make OH vibration dark
+                        if ( h == 1 ) dipole[ chrom ][i] = 0.;
+                    }
+                    else if ( species == "HOD/D2O" and h==2 ){ // make OD vibration dark
+                        if ( h == 2 ) dipole[ chrom ][i] = 0.;
+                    }
+                }
+            }
             // alpha for raman spectrum
             for ( i = 0; i < 3; i ++ ){
                 for ( j = 0; j < 3; j ++ ){
                     // off diagonal and diagonal
                     alpha[ chrom ][i][j] = 4.6*oh_vec[i]*oh_vec[j]*x10/(r*r);
+                    if ( HODtype == "explicit" ){
+                        if ( species == "HOD/H2O" and h==1 ){ // make OH vibration dark
+                            if ( h == 1 ) alpha[ chrom ][i][j] = 0.;
+                        }
+                        else if ( species == "HOD/D2O" and h==2 ){ // make OD vibration dark
+                            if ( h == 2 ) alpha[ chrom ][i][j] = 0.;
+                        }
+                    }
                 }
                 alpha[ chrom ][i][i] += x10; // diagonal have an extra factor
+                if ( HODtype == "explicit" ){
+                    if ( species == "HOD/H2O" and h==1 ){ // make OH vibration dark
+                        if ( h == 1 ) alpha[ chrom ][i][j] = 0.;
+                    }
+                    else if ( species == "HOD/D2O" and h==2 ){ // make OD vibration dark
+                        if ( h == 2 ) alpha[ chrom ][i][j] = 0.;
+                    }
+                }
             }
         }
     }

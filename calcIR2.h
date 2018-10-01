@@ -16,6 +16,7 @@ class model: public gmx_reader
         string  outf="spec";                    // name for output files
         string  waterModel="e3b3";              // water model tip4p, tip4p2005, e3b2, e3b3
         string  species="HOD/H2O";              // which species to calculate
+        string  HODtype="implicit";             // are HOD simulated (explicit) or H2O (implicit)
         int     nsamples=1;                     // number of samples to take
         int     ntcfpoints=200;                 // number of tcf points
         float   sampleEvery=0.;                 // number of ps to start every sample
