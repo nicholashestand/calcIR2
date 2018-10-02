@@ -44,7 +44,8 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     cout << "Set ntcfpoints to: "   << ntcfpoints   << endl;
     cout << "Set sampleEvery to: "  << sampleEvery  << endl;
     cout << "Set beginTime to: "    << beginTime    << endl;
-    cout << "Set outf to: "         << outf         << endl;
+    cout << "Set T1 to: "           << t1           << endl;
+    cout << "set tcfdt to: "        << tcfdt        << endl;
     cout << "set HODtype to: "      << HODtype      << endl;
 
     // determine number of chromophores
