@@ -35,6 +35,8 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
         if ( uParams[i] == "tcfdt" )            tcfdt           = stof(uValues[i]);
         if ( uParams[i] == "t1" )               t1              = stof(uValues[i]);
         if ( uParams[i] == "HODtype" )          HODtype         = uValues[i];
+        if ( uParams[i] == "nlistcut" )         nlistcut        = stof(uValues[i]);
+        if ( uParams[i] == "nlistmax" )         nlistmax        = stoi(uValues[i]);
     }
 
     cout << "Set outf to: "         << outf         << endl;
@@ -47,6 +49,8 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     cout << "Set T1 to: "           << t1           << endl;
     cout << "set tcfdt to: "        << tcfdt        << endl;
     cout << "set HODtype to: "      << HODtype      << endl;
+    cout << "set nlistcut to: "     << nlistcut     << endl;
+    cout << "set nlistmax to: "     << nlistmax     << endl;
 
     // determine number of chromophores
     nchrom = nmol*nchrom_mol; // number of chromophores per frame
@@ -72,7 +76,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     Fvhtcf    = new double[ ntcfpoints + nzeros ]();
     Fomega    = new double[ ntcfpoints + nzeros ]();
     propigator= new complex<double>[ nchrom ]();
-
+    nlist     = new int[ nmol*nlistmax ]();
 
     // set the maps
     if ( species == "HOD/H2O" ){
@@ -121,6 +125,7 @@ model::~model()
     delete [] Fvhtcf;
     delete [] Fomega;
     delete [] propigator;
+    delete [] nlist;
 }
 
 void model::adjust_Msite()
@@ -158,6 +163,41 @@ int model::get_chrom_nx( int mol, int h )
     return mol*nchrom_mol + h - 1;
 }
 
+void model::update_nlist()
+// calculate the electric field projection onto each H atom
+{
+    // reset neighborlist to negative 1
+    for ( int i = 0; i < nmol*nlistmax; i ++ ) nlist[i] = -1;
+
+    // loop over all reference chromophores
+    #pragma omp parallel for
+    for ( int mol1 = 0; mol1 < nmol; mol1 ++ ){
+        int   mol2, i;
+        float r;
+        float oo_vec[3];    // oh vector of molecule 1
+        int   nlisti;       // neighbor list index
+        nlisti = 0;         // reset neighbor list index
+        for ( mol2 = 0; mol2 < nmol; mol2 ++ ){
+            // dont care about self
+            if ( mol1 == mol2 ) continue;
+
+            // get distance between oxygen atoms
+            for ( i = 0; i < 3; i ++ ) oo_vec[i] = x[ mol1 * natoms_mol + OW ][i] \
+                                                 - x[ mol2 * natoms_mol + OW ][i];
+            minImage( oo_vec );
+            r = mag3( oo_vec );
+            if ( r < nlistcut ){
+                nlist[ mol1*nlistmax + nlisti ] = mol2;
+                nlisti ++;
+            }
+            if ( nlisti >= nlistmax ){
+                cout << "Warning:: nlisti >= nlistmax. Aborting.\nMake sure nlilst max is big enough for nlistcut" << endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+    cout << "Done with nlist" << endl;
+}
 
 void model::get_efield()
 // calculate the electric field projection onto each H atom
@@ -171,7 +211,7 @@ void model::get_efield()
     // loop over all reference chromophores
     #pragma omp parallel for
     for ( int mol1 = 0; mol1 < nmol; mol1 ++ ){
-        int   mol2, h1, a2, i, chrom;
+        int   mol2, h1, a2, i, chrom, neigh;
         float r;
         float efield_vec[3];    // electric field vector
         float mol1oh_vec[3];    // oh vector of molecule 1
@@ -191,8 +231,9 @@ void model::get_efield()
             for ( i = 0; i < 3; i ++ ) mol1oh_vec[i] /= r;
 
             // loop over all other atoms to deterime the electric field
-            for ( mol2 = 0; mol2 < nmol; mol2 ++ ){
-                if ( mol1 == mol2 ) continue; // skip reference molecule
+            for ( neigh = 0; neigh < nlistmax; neigh ++ ){
+                mol2 = nlist[ mol1*nlistmax + neigh ];
+                if ( mol2 == -1 ) break; // nlist will equal -1 when neigh > number of neighbors < nlistcut
                 
                 // distance between reference H and mol2 O
                 for ( i = 0; i < 3; i ++ ) mol12ho_vec[i] = x[ mol1 * natoms_mol + h1 ][i] - \
@@ -588,6 +629,9 @@ int main( int argc, char* argv[] )
                 cout << "Aborting." << endl;
                 exit(EXIT_FAILURE);
             }
+
+            // update neighbor list every 100 tcfpoints
+            if ( tcfpoint % 100 == 0 ) reader.update_nlist();
 
             reader.get_efield();
             reader.get_alpha_mu();

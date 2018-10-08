@@ -33,12 +33,15 @@ class model: public gmx_reader
         float map_x[2]; 
         float map_p[2];
         float map_muprime[3];
+        int   *nlist;                           // neighbor list
+        int   nlistmax=200;                     // max number of neighbors in neighbor list
+        float nlistcut=1.;                      // neighbor list cutoff in nm
 
-        float *eproj;                            // electric field
-        rvec  *dipole_t0;                        // transition dipole moment of each chrom at t0
-        rvec  *dipole;                           // transition dipole moment of each chrom
-        matrix *alpha_t0;                        // polarizabilities of each chrom at t0
-        matrix *alpha;                           // polarizabiliites of each chrom
+        float *eproj;                           // electric field
+        rvec  *dipole_t0;                       // transition dipole moment of each chrom at t0
+        rvec  *dipole;                          // transition dipole moment of each chrom
+        matrix *alpha_t0;                       // polarizabilities of each chrom at t0
+        matrix *alpha;                          // polarizabiliites of each chrom
 
         complex<double>         *irtcf; 
         complex<double>         *vvtcf; 
@@ -79,6 +82,7 @@ class model: public gmx_reader
         void  do_ffts();
         void  write_tcf();
         void  write_spec();
+        void  update_nlist();
         void  printProgress( int currentStep, int totalSteps );
 };
 #endif
