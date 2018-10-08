@@ -36,6 +36,7 @@ class model: public gmx_reader
         int   *nlist;                           // neighbor list
         int   nlistmax=200;                     // max number of neighbors in neighbor list
         float nlistcut=1.;                      // neighbor list cutoff in nm
+        rvec  *lastox;                          // last o position for neighborlist update
 
         float *eproj;                           // electric field
         rvec  *dipole_t0;                       // transition dipole moment of each chrom at t0

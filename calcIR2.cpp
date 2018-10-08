@@ -77,6 +77,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     Fomega    = new double[ ntcfpoints + nzeros ]();
     propigator= new complex<double>[ nchrom ]();
     nlist     = new int[ nmol*nlistmax ]();
+    lastox    = new rvec[ nmol ]();
 
     // set the maps
     if ( species == "HOD/H2O" ){
@@ -107,6 +108,11 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
         exit(EXIT_FAILURE);
     }
 
+    // initialize the last ox position to large number;
+    for ( int mol = 0; mol < nmol; mol ++ ){
+        for ( int i = 0; i < 3; i++ ) lastox[ mol ][i] = 1E8;
+    }
+
 }
 
 model::~model()
@@ -126,6 +132,7 @@ model::~model()
     delete [] Fomega;
     delete [] propigator;
     delete [] nlist;
+    delete [] lastox;
 }
 
 void model::adjust_Msite()
@@ -166,37 +173,71 @@ int model::get_chrom_nx( int mol, int h )
 void model::update_nlist()
 // calculate the electric field projection onto each H atom
 {
-    // reset neighborlist to negative 1
-    for ( int i = 0; i < nmol*nlistmax; i ++ ) nlist[i] = -1;
+    const float efieldCutoff = 0.7831; // cutoff radius for efield
+    float pad, dispmax;
+    bool update;
 
-    // loop over all reference chromophores
-    #pragma omp parallel for
+    pad = nlistcut - efieldCutoff;
+    dispmax = 0;
+    update = false;
+
+    // find maximum oxygen displacement and update only if greater than the padding of the nlist
     for ( int mol1 = 0; mol1 < nmol; mol1 ++ ){
-        int   mol2, i;
-        float r;
-        float oo_vec[3];    // oh vector of molecule 1
-        int   nlisti;       // neighbor list index
-        nlisti = 0;         // reset neighbor list index
-        for ( mol2 = 0; mol2 < nmol; mol2 ++ ){
-            // dont care about self
-            if ( mol1 == mol2 ) continue;
-
-            // get distance between oxygen atoms
-            for ( i = 0; i < 3; i ++ ) oo_vec[i] = x[ mol1 * natoms_mol + OW ][i] \
-                                                 - x[ mol2 * natoms_mol + OW ][i];
-            minImage( oo_vec );
-            r = mag3( oo_vec );
-            if ( r < nlistcut ){
-                nlist[ mol1*nlistmax + nlisti ] = mol2;
-                nlisti ++;
-            }
-            if ( nlisti >= nlistmax ){
-                cout << "Warning:: nlisti >= nlistmax. Aborting.\nMake sure nlilst max is big enough for nlistcut" << endl;
-                exit(EXIT_FAILURE);
+        float disp_vec[3], disp;
+        for ( int i = 0; i < 3; i ++ ) disp_vec[i] = x[ mol1 * natoms_mol + OW ][i] \
+                                                   - lastox[ mol1 ][i];
+        minImage( disp_vec );
+        disp = mag3( disp_vec );
+        if ( disp > dispmax ) {
+            dispmax = disp;
+            if ( dispmax > (pad-0.09572)/2. ){
+                // worst case scenario, all atoms could move as far as (pad-0.09572)/2 and all
+                // relevant H atoms inside the efield cutoff would still be in the neighbor list
+                // here 0.09572 is the OH bond length for tip4p geometry
+                update = true;
+                break;
             }
         }
     }
-    cout << "Done with nlist" << endl;
+
+    if ( update ){
+        cout << endl << "Updating neighbor list..." << endl;
+        // reset neighborlist to negative 1
+        for ( int i = 0; i < nmol*nlistmax; i ++ ) nlist[i] = -1;
+
+        // loop over all reference chromophores
+        #pragma omp parallel for
+        for ( int mol1 = 0; mol1 < nmol; mol1 ++ ){
+            int   mol2, i;
+            float r;
+            float oo_vec[3];    // oh vector of molecule 1
+            int   nlisti;       // neighbor list index
+            nlisti = 0;         // reset neighbor list index
+
+            // update last positions for neighbor list update
+            for (i = 0; i < 3; i ++ ) lastox[ mol1 ][i] = x[ mol1 * natoms_mol + OW ][i];
+
+            for ( mol2 = 0; mol2 < nmol; mol2 ++ ){
+                // dont care about self
+                if ( mol1 == mol2 ) continue;
+
+                // get distance between oxygen atoms
+                for ( i = 0; i < 3; i ++ ) oo_vec[i] = x[ mol1 * natoms_mol + OW ][i] \
+                                                     - x[ mol2 * natoms_mol + OW ][i];
+                minImage( oo_vec );
+                r = mag3( oo_vec );
+                if ( r < nlistcut ){
+                    nlist[ mol1*nlistmax + nlisti ] = mol2;
+                    nlisti ++;
+                }
+                if ( nlisti >= nlistmax ){
+                    cout << "Warning:: nlisti >= nlistmax. Aborting.\nMake sure nlilst max is big enough for nlistcut" << endl;
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+        cout << "Done." << endl;
+    }
 }
 
 void model::get_efield()
@@ -630,8 +671,8 @@ int main( int argc, char* argv[] )
                 exit(EXIT_FAILURE);
             }
 
-            // update neighbor list every 100 tcfpoints
-            if ( tcfpoint % 100 == 0 ) reader.update_nlist();
+            // update neighbor list
+            reader.update_nlist();
 
             reader.get_efield();
             reader.get_alpha_mu();
