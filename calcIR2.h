@@ -34,8 +34,8 @@ class model: public gmx_reader
         float map_p[2];
         float map_muprime[3];
         int   *nlist;                           // neighbor list
-        int   nlistmax=200;                     // max number of neighbors in neighbor list
-        float nlistcut=1.;                      // neighbor list cutoff in nm
+        int   nlistmax=2000;                    // max number of neighbors in neighbor list
+        float nlistcut=2.;                      // neighbor list cutoff in nm
         rvec  *lastox;                          // last o position for neighborlist update
 
         float *eproj;                           // electric field
