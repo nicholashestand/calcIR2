@@ -61,6 +61,10 @@ class model: public gmx_reader
         double                  *Fvhtcf;
         double                  *Fomega;
 
+        const float             sd_min = 1000., sd_max = 5000.;
+        const int               sd_step=1, nsd=4001;
+        float   *sd;
+
     
         // Default constructor and destructor
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -76,6 +80,7 @@ class model: public gmx_reader
         void  adjust_Msite();
         int   get_chrom_nx( int mol, int h );
         void  get_tcf_dilute( int tcfpoint );
+        void  get_specdens();
         float get_muprime( float efield );
         float get_omega10( float efield );
         float get_x10( float omega10 );

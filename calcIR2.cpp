@@ -78,6 +78,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     propigator= new complex<double>[ nchrom ]();
     nlist     = new int[ nmol*nlistmax ]();
     lastox    = new rvec[ nmol ]();
+    sd        = new float[ nsd ]();
 
     // set the maps
     if ( species == "HOD/H2O" ){
@@ -108,11 +109,6 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
         exit(EXIT_FAILURE);
     }
 
-    // initialize the last ox position to large number;
-    for ( int mol = 0; mol < nmol; mol ++ ){
-        for ( int i = 0; i < 3; i++ ) lastox[ mol ][i] = 1E8;
-    }
-
 }
 
 model::~model()
@@ -133,6 +129,7 @@ model::~model()
     delete [] propigator;
     delete [] nlist;
     delete [] lastox;
+    delete [] sd;
 }
 
 void model::adjust_Msite()
@@ -468,6 +465,22 @@ void model::get_tcf_dilute( int tcfpoint )
     vhtcf[ tcfpoint ] += complex<double>{ vhReal, vhImag };
 }
 
+void model::get_specdens()
+// determine spectral density
+{
+    for ( int chrom = 0; chrom < nchrom; chrom ++ ){
+        int bin;
+        float omega10;
+
+        omega10 = get_omega10( eproj[chrom] ); 
+        bin = round( ( omega10 - sd_min ) / sd_step );
+        if ( bin < 0 || bin > sd_max ){
+            printf("Warning: bin is: %d for frequency %g. Check bounds of sd_min and sd_max. Aborting.\n", bin, omega10 );
+        }
+        sd[ bin ] += dot3( dipole[chrom], dipole[chrom] )/(1.*sd_step);
+    }
+}
+
 void model::reset_propigator()
 // reset the propigator to ones for t=0
 {
@@ -619,6 +632,15 @@ void model::write_spec()
     }
     fclose(file);
 
+    // spectral density
+    fname = outf+"-spdn.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#omega (cm-1) lineshape\n");
+    for ( i = 0; i < nsd; i ++ ){
+        fprintf( file, "%g %g\n", sd_min + i*sd_step, sd[i] );
+    }
+    fclose(file);
+
 }
 
 void printProgress( int currentStep, int totalSteps )
@@ -658,6 +680,12 @@ int main( int argc, char* argv[] )
         fprintf(stderr, "\n    Now processing sample %d/%d starting at %.2f ps\n", \
                 currentSample + 1, reader.nsamples, currentTime );
         fflush(stderr);
+
+        // reset lastox to force nlist update -- itialize to very large number
+        for ( int mol = 0; mol < reader.nmol; mol ++ ){
+            for ( int i = 0; i < 3; i++ ) reader.lastox[ mol ][i] = 1E8;
+        }
+
         for ( tcfpoint = 0; tcfpoint < reader.ntcfpoints; tcfpoint ++ ){
            
             // get current time and read time frame
@@ -679,6 +707,7 @@ int main( int argc, char* argv[] )
             if ( tcfpoint == 0 ){
                 reader.set_alpha_mu_t0();
                 reader.reset_propigator();
+                reader.get_specdens();
             }
             reader.get_tcf_dilute( tcfpoint );
 
@@ -696,12 +725,16 @@ int main( int argc, char* argv[] )
                 {exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
     }
 
+    // normalize the spectral density
+    for ( int bin = 0; bin < reader.nsd; bin ++ ) reader.sd[bin] /=(1.*reader.nsamples);
+
     // perform the fft to get the spectrum
     reader.do_ffts();
 
     // write output files
     reader.write_tcf(); // write tcf to file
     reader.write_spec();
+
 
     cout << endl << endl << endl << "DONE!" << endl;
 }
