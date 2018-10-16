@@ -683,7 +683,7 @@ int main( int argc, char* argv[] )
 
         // reset lastox to force nlist update -- itialize to very large number
         for ( int mol = 0; mol < reader.nmol; mol ++ ){
-            for ( int i = 0; i < 3; i++ ) reader.lastox[ mol ][i] = 1E8;
+            for ( int i = 0; i < 3; i++ ) reader.lastox[ mol ][i] = 1E4;
         }
 
         for ( tcfpoint = 0; tcfpoint < reader.ntcfpoints; tcfpoint ++ ){
