@@ -657,7 +657,7 @@ int main( int argc, char* argv[] )
 {
 
     int     currentSample, frameno, tcfpoint;
-    float   currentTime, tcfTime;
+    double  currentTime, tcfTime;
 
     // Check program input
     if ( argc != 2 ){
