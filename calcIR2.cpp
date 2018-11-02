@@ -198,7 +198,7 @@ void model::update_nlist()
     }
 
     if ( update ){
-        cout << endl << "Updating neighbor list..." << endl;
+        // cout << endl << "Updating neighbor list..." << endl;
         // reset neighborlist to negative 1
         for ( int i = 0; i < nmol*nlistmax; i ++ ) nlist[i] = -1;
 
@@ -233,7 +233,7 @@ void model::update_nlist()
                 }
             }
         }
-        cout << "Done." << endl;
+        //cout << "Done." << endl;
     }
 }
 
