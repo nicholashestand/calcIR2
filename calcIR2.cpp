@@ -79,6 +79,7 @@ model::model( string _inpf_ ) : gmx_reader::gmx_reader( _inpf_ )
     nlist     = new int[ nmol*nlistmax ]();
     lastox    = new rvec[ nmol ]();
     sd        = new float[ nsd ]();
+    frequency = new float[ nsd ]();
 
     // set the maps
     if ( species == "HOD/H2O" ){
@@ -130,6 +131,7 @@ model::~model()
     delete [] nlist;
     delete [] lastox;
     delete [] sd;
+    delete [] frequency;
 }
 
 void model::adjust_Msite()
@@ -466,7 +468,7 @@ void model::get_tcf_dilute( int tcfpoint )
 }
 
 void model::get_specdens()
-// determine spectral density
+// determine spectral density and frequency density
 {
     for ( int chrom = 0; chrom < nchrom; chrom ++ ){
         int bin;
@@ -478,6 +480,7 @@ void model::get_specdens()
             printf("Warning: bin is: %d for frequency %g. Check bounds of sd_min and sd_max. Aborting.\n", bin, omega10 );
         }
         sd[ bin ] += dot3( dipole[chrom], dipole[chrom] )/(1.*sd_step);
+        frequency[ bin ] += 1./(1.*sd_step);
     }
 }
 
@@ -635,11 +638,22 @@ void model::write_spec()
     // spectral density
     fname = outf+"-spdn.dat";
     file = fopen(fname.c_str(),"w");
-    fprintf( file, "#omega (cm-1) lineshape\n");
+    fprintf( file, "#omega (cm-1) spectral density\n");
     for ( i = 0; i < nsd; i ++ ){
         fprintf( file, "%g %g\n", sd_min + i*sd_step, sd[i] );
     }
     fclose(file);
+
+    // frequency density
+    fname = outf+"-ffdn.dat";
+    file = fopen(fname.c_str(),"w");
+    fprintf( file, "#omega (cm-1) frequency density\n");
+    for ( i = 0; i < nsd; i ++ ){
+        fprintf( file, "%g %g\n", sd_min + i*sd_step, frequency[i] );
+    }
+    fclose(file);
+
+
 
 }
 
@@ -725,8 +739,10 @@ int main( int argc, char* argv[] )
                 {exp(-1.*tcfpoint*reader.tcfdt/(2.0*reader.t1))/(1.*reader.nsamples),0.};
     }
 
-    // normalize the spectral density
+    // normalize the spectral density and frequency density
     for ( int bin = 0; bin < reader.nsd; bin ++ ) reader.sd[bin] /=(1.*reader.nsamples);
+    for ( int bin = 0; bin < reader.nsd; bin ++ ) reader.frequency[bin] /=(1.*reader.nsamples);
+
 
     // perform the fft to get the spectrum
     reader.do_ffts();

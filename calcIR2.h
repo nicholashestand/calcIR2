@@ -64,6 +64,7 @@ class model: public gmx_reader
         const float             sd_min = 1000., sd_max = 5000.;
         const int               sd_step=1, nsd=4001;
         float   *sd;
+        float   *frequency;
 
     
         // Default constructor and destructor
